@@ -21,7 +21,7 @@
 import {
   cn, haptic, host, usePluginI18n, useQuery, useQueryClient, queryClient,
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
-  ROUTES_AREA, SIDEBAR_NAV_AREA,
+  ROUTES_AREA,
 } from '@hermes/plugin-sdk'
 import { useEffect, useState } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
@@ -486,12 +486,6 @@ export default {
         chipActiveTip: 'Hermes is waiting for credentials — click to fill the form',
         footer: 'Integrations declare their credentials in plugin.yaml (requires_env) — the plugin picks them up automatically.',
       },
-    })
-
-    ctx.register({
-      id: 'nav',
-      area: SIDEBAR_NAV_AREA,
-      data: { path: '/setup', label: 'Setups', codicon: 'key' },
     })
 
     ctx.register({
