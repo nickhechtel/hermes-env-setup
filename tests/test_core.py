@@ -77,18 +77,29 @@ def main() -> int:
     assert get_env_value("ENV_SETUP_TEST_HOST") == "imap.example.test"
     print("5. resolve wrote real .env value, skipped empty: OK")
 
-    # 6. catalog: static + dynamic plugin discovery, no value leakage
+    # 6. catalog: dynamic plugin discovery only (no static presets), no value leakage
     cat = core.catalog()
     ids = [i["id"] for i in cat["integrations"]]
-    assert "email" in ids and "telegram" in ids, ids
-    assert "plugin:homeassistant" in ids, ids
+    assert "plugin:homeassistant" in ids, ids  # requires_env discovered dynamically
+    assert all(i["id"].startswith("plugin:") for i in cat["integrations"]), ids
     blob = json.dumps(cat)
     assert "imap.example.test" not in blob, "value leaked into catalog!"
-    print("6. catalog: static + dynamic discovery, no value leak: OK")
+    print("6. catalog: dynamic plugin discovery only, no value leak: OK")
 
-    # 7. status snapshot
+    # 6b. check_variables: targeted set/unset flags (values never returned)
+    out = core.check_variables(["ENV_SETUP_TEST_HOST", "ENV_SETUP_TEST_PASS"])
+    assert out["variables"] == [
+        {"name": "ENV_SETUP_TEST_HOST", "set": True},
+        {"name": "ENV_SETUP_TEST_PASS", "set": False},
+    ], out
+    assert isinstance(core.check_variables(["bad-name"]), str)  # invalid -> error
+    assert isinstance(core.check_variables([]), str)  # empty -> error
+    print("6b. check_variables targeted flags: OK")
+
+    # 7. status snapshot: dynamic-only + request state present
     snap = core.status_snapshot()
-    assert any(i["id"] == "email" for i in snap["integrations"])
+    assert any(i["id"] == "plugin:homeassistant" for i in snap["integrations"])
+    assert "open_requests" in snap and "recently_resolved" in snap
     print("7. status snapshot: OK")
 
     # 8. supersede: an OPEN request gets closed when a newer one arrives
@@ -108,11 +119,10 @@ def main() -> int:
     assert w["skipped"] == ["ENV_SETUP_TEST_EMPTY"]
     print("10. write_values direct flow: OK")
 
-    # 11. dashboard backend router
+    # 11. dashboard backend router (minimal: requests flow only)
     pa = load(API, "pa")
     routes = sorted(getattr(r, "path", "?") for r in pa.router.routes)
-    assert "/catalog" in routes and "/requests" in routes
-    assert "/requests/{rid}/resolve" in routes and "/configure" in routes
+    assert routes == ["/requests", "/requests/{rid}/cancel", "/requests/{rid}/resolve"], routes
     print("11. backend routes:", routes)
 
     # cleanup: strip ENV_SETUP_TEST_* lines from .env, reset os.environ

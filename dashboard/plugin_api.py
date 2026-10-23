@@ -6,6 +6,10 @@ process-global request registry with the agent tools (core.py is imported by
 file location here — the dashboard loader mounts this file without package
 context — and the singleton key in core guarantees shared state anyway).
 
+Minimal by design: only the chat-driven request flow. No catalog, no
+provider presets — credentials are requested by the agent when the chat
+needs them, nothing else.
+
 Every route returns field metadata and set/unset flags only. Values arrive
 via POST bodies and are written straight to .env; they are never echoed back.
 """
@@ -36,14 +40,8 @@ _core = _load_core()
 
 
 # ---------------------------------------------------------------------------
-# catalog & status (read-only, value-free)
+# the chat-driven ask flow
 # ---------------------------------------------------------------------------
-
-@router.get("/catalog")
-async def get_catalog():
-    """All known integrations with set/unset flags — never values."""
-    return _core.catalog()
-
 
 @router.get("/requests")
 async def get_requests():
@@ -51,10 +49,6 @@ async def get_requests():
     reg = _core.get_registry()
     return {"requests": reg.snapshot()}
 
-
-# ---------------------------------------------------------------------------
-# agent-request flow
-# ---------------------------------------------------------------------------
 
 @router.post("/requests/{rid}/resolve")
 async def resolve_request(rid: str, body: dict):
@@ -68,41 +62,9 @@ async def resolve_request(rid: str, body: dict):
 
 @router.post("/requests/{rid}/cancel")
 async def cancel_request(rid: str):
+    """User cancelled the form: ends the ask flow, the waiting tool gets 'cancelled'."""
     reg = _core.get_registry()
     result = reg.cancel(rid)
     if "error" in result:
         return {"ok": False, "error": result["error"]}
     return {"ok": True, **result}
-
-
-# ---------------------------------------------------------------------------
-# direct configure flow (user-driven, no agent request)
-# ---------------------------------------------------------------------------
-
-@router.post("/configure")
-async def configure_integration(body: dict):
-    """Set values for a catalog integration directly (Setups page in the app)."""
-    body = body or {}
-    integration_id = body.get("integration_id")
-    values = body.get("values") or {}
-    if not isinstance(integration_id, str) or not isinstance(values, dict) or not values:
-        return {"ok": False, "error": "integration_id and non-empty values object required"}
-
-    catalog = _core.catalog()["integrations"]
-    integration = next((i for i in catalog if i.get("id") == integration_id), None)
-    if integration is None:
-        return {"ok": False, "error": f"unknown integration {integration_id!r}"}
-    allowed = {f["name"] for f in integration.get("fields", [])}
-    for key in values:
-        if key not in allowed:
-            return {"ok": False, "error": f"field {key!r} does not belong to {integration_id!r}"}
-
-    written = _core.write_values(values)
-    skipped_explicit = [n for n in (body.get("skipped") or []) if n in allowed]
-    skipped = written["skipped"] + [n for n in skipped_explicit
-                                    if n not in written["skipped"] and n not in written["configured"]]
-    out = {"ok": True, "configured": written["configured"], "skipped": skipped}
-    if written["errors"]:
-        out["ok"] = False
-        out["errors"] = written["errors"]
-    return out

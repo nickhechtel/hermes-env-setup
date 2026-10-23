@@ -13,7 +13,6 @@ returns field NAMES and set/unset flags only.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
@@ -112,7 +111,7 @@ def _normalize_field(raw: dict, existing_names: set) -> tuple[dict | None, str |
 
 
 def _catalog_field(spec: dict) -> dict:
-    """Field dict from integrations.json / plugin.yaml requires_env, plus live set flag."""
+    """Field dict from plugin.yaml requires_env declarations, plus live set flag."""
     name = spec.get("name")
     return {
         "name": name,
@@ -313,17 +312,29 @@ def get_registry() -> _Registry:
 
 
 # ---------------------------------------------------------------------------
-# Catalog: static integrations.json + dynamic requires_env of installed plugins
+# Catalog: credentials declared by installed plugins (dynamic only)
 # ---------------------------------------------------------------------------
+# No hardcoded provider list by design — the plugin is a minimal on-demand
+# channel, not a catalog. Anything that needs credentials declares them in its
+# plugin.yaml (requires_env / optional_env) and shows up here automatically.
 
-def _static_catalog() -> list[dict]:
-    path = Path(__file__).resolve().parent / "integrations.json"
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data.get("integrations", [])
-    except Exception:
-        logger.exception("env-setup: could not read integrations.json")
-        return []
+def catalog() -> dict:
+    """Plugin-declared credentials with live set/unset flags. NEVER values."""
+    return {"integrations": _dynamic_catalog()}
+
+
+def check_variables(names) -> dict | str:
+    """Check specific ENV variable names for set/unset — values never returned."""
+    if not isinstance(names, list) or not names:
+        return "variables must be a non-empty list of ENV names"
+    if len(names) > 24:
+        return "too many variables (max 24)"
+    out = []
+    for name in names:
+        if not _valid_env_name(name):
+            return f"invalid variable name {name!r}"
+        out.append({"name": name, "set": bool(_get_env_value(name))})
+    return {"variables": out}
 
 
 def _dynamic_catalog() -> list[dict]:
@@ -367,22 +378,6 @@ def _dynamic_catalog() -> list[dict]:
             "fields": fields,
         })
     return out
-
-
-def catalog() -> dict:
-    """Catalog with live set/unset flags. NEVER includes values."""
-    integrations = []
-    for raw in _static_catalog():
-        integrations.append({
-            "id": raw.get("id"),
-            "label": raw.get("label"),
-            "description": raw.get("description", ""),
-            "icon": raw.get("icon", "key"),
-            "source": "builtin",
-            "fields": [_catalog_field(f) for f in raw.get("fields", [])],
-        })
-    integrations.extend(_dynamic_catalog())
-    return {"integrations": integrations}
 
 
 def status_snapshot() -> dict:

@@ -159,29 +159,53 @@ async def _prompt_handler(args: dict) -> str:
 STATUS_SCHEMA = {
     "name": "env_setup_status",
     "description": (
-        "Check credential/configuration status WITHOUT exposing values: which "
-        "environment variables of known integrations (email, Telegram, AI "
-        "providers, GitHub, and all installed plugins' declared variables) are "
-        "set or missing, plus any setup form the user completed after a "
-        "env_setup_prompt timeout. Use before starting a setup to see what is "
-        "missing, or after a timeout to pick up late completions."
+        "Check credential/configuration status WITHOUT exposing values. Either "
+        "pass 'variables' with specific ENV names to check (returns set/unset "
+        "flags for exactly those), or omit it to list missing credentials "
+        "declared by installed plugins (their requires_env) plus any setup "
+        "form the user completed after an env_setup_prompt timeout. Use before "
+        "starting a setup to see what is missing, or after a timeout to pick "
+        "up late completions. Never returns values."
     ),
-    "parameters": {"type": "object", "properties": {}, "required": []},
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "variables": {
+                "type": "array",
+                "description": (
+                    "Specific ENV variable names to check, e.g. "
+                    "['OPENAI_API_KEY', 'EMAIL_PASSWORD']. Max 24."
+                ),
+                "items": {"type": "string"},
+            },
+        },
+        "required": [],
+    },
 }
 
 
-async def _status_handler(args: dict) -> str:  # noqa: ARG001
+async def _status_handler(args: dict) -> str:
     reg = core.get_registry()
     snap = core.status_snapshot()
     for late in snap["recently_resolved"]:
         # The agent now sees the outcome — mark it consumed so it stops resurfacing.
         reg.mark_consumed(late["id"])
+
+    requested = (args or {}).get("variables")
+    checked = None
+    if requested:
+        result = core.check_variables(requested)
+        if isinstance(result, str):
+            return _result({"error": result})
+        checked = result["variables"]
+
     compact = {
-        "integrations": [
+        "checked_variables": checked,
+        "plugin_integrations": [
             {
                 "id": i["id"],
                 "label": i["label"],
-                "fields": [{"name": f["name"], "set": f["set"]} for f in i["fields"]],
+                "missing": [f["name"] for f in i["fields"] if f["required"] and not f["set"]],
                 "complete": all(f["set"] for f in i["fields"] if f["required"]),
             }
             for i in snap["integrations"]

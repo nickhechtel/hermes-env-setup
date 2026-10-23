@@ -26,11 +26,17 @@ Agent: sees ONLY {"status": "resolved", "configured": [...names...]}
 | `plugin.yaml` | — | manifest, declares `provides_tools` |
 | `__init__.py` | gateway | plugin entry point `register(ctx)` |
 | `tools.py` | gateway/agent | `env_setup_prompt`, `env_setup_status` tools |
-| `core.py` | gateway | request registry (process-global singleton), catalog, `.env` writer |
-| `integrations.json` | — | static catalog (email, Telegram, Discord, OpenAI, Anthropic, OpenRouter, GitHub) |
+| `core.py` | gateway | request registry (process-global singleton), plugin-credential discovery, `.env` writer |
 | `dashboard/manifest.json` | — | backend mount declaration |
-| `dashboard/plugin_api.py` | gateway | REST routes under `/api/plugins/env-setup/` |
-| `desktop/plugin.js` | desktop app | Setups page (`/setup`), statusbar chip, forms |
+| `dashboard/plugin_api.py` | gateway | REST routes under `/api/plugins/env-setup/` (requests flow only) |
+| `desktop/plugin.js` | desktop app | Setups page (`/setup`), statusbar chip, masked forms |
+
+**No provider catalog by design.** The plugin is a minimal on-demand
+credential channel. Credentials for specific services are declared where
+they belong — in each plugin's `plugin.yaml` (`requires_env` / `optional_env`)
+— and show up in `env_setup_status` automatically. Product-specific
+integration presets (QoL for your customers) belong in YOUR plugin, which
+just declares its variables and optionally its own forms.
 
 ## Security invariants
 
@@ -48,10 +54,13 @@ Agent: sees ONLY {"status": "resolved", "configured": [...names...]}
 ## Agent tool contract
 
 - `env_setup_prompt(fields, title, reason, timeout_seconds)` — opens the form,
-  waits (default 150 s). On timeout the request stays open in the desktop app;
-  the agent picks up a late completion via `env_setup_status`.
-- `env_setup_status()` — which integration variables are set/missing + any
-  late resolutions.
+  waits (default 150 s). Cancel in the UI really ends the flow (the waiting
+  tool returns `cancelled`). On timeout the request stays open in the desktop
+  app; the agent picks up a late completion via `env_setup_status`.
+- `env_setup_status(variables?)` — set/unset flags, never values. Pass
+  `variables: ["OPENAI_API_KEY", ...]` to check specific names for the
+  current chat task; omit to list missing credentials declared by installed
+  plugins plus any late resolutions.
 
 ## Install (one click)
 
