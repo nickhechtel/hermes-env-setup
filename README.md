@@ -53,6 +53,26 @@ Agent: sees ONLY {"status": "resolved", "configured": [...names...]}
 - `env_setup_status()` — which integration variables are set/missing + any
   late resolutions.
 
+## Install (one click)
+
+```
+hermes://plugin/install?repo=nickhechtel/hermes-env-setup&enable=1
+```
+
+The desktop app shows a confirmation dialog and picks the components:
+- **Desktop half** — clone on the machine where the Hermes desktop app runs
+- **Agent half** — for the gateway host (`hermes plugins enable env-setup` there; backend mounts on gateway restart)
+
+Manual install on the gateway host:
+
+```bash
+git clone https://github.com/nickhechtel/hermes-env-setup ~/.hermes/plugins/env-setup
+hermes plugins enable env-setup
+```
+
+For just the desktop UI on a remote-desktop setup, copy `desktop/plugin.js` to
+`~/.hermes/desktop-plugins/env-setup/plugin.js` on the desktop machine.
+
 ## Install (dev)
 
 ```bash
