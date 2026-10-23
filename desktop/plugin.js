@@ -291,16 +291,15 @@ function SetupPage() {
   const integrations = (catalogQuery.data || {}).integrations || []
 
   // Chip navigation sets a storage flag: land directly on the pending request.
+  // NOTE: ctx.storage.get(key, fallback) is SYNCHRONOUS (see contrib/plugin.ts
+  // createPluginStorage) — no .then().
   useEffect(() => {
-    let alive = true
-    if (!_ctx) return () => {}
-    _ctx.storage.get('open_request').then((flag) => {
-      if (alive && flag && pending) {
-        setView('request')
-        _ctx.storage.set('open_request', false)
-      }
-    })
-    return () => { alive = false }
+    if (!_ctx || !pending) return
+    const flag = _ctx.storage.get('open_request', false)
+    if (flag) {
+      _ctx.storage.set('open_request', false)
+      setView('request')
+    }
   }, [pending])
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: [ID] })
