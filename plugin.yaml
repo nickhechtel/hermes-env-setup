@@ -1,0 +1,16 @@
+name: env-setup
+label: Setup Assistant
+kind: standalone
+version: 0.1.0
+author: nick
+description: >
+  Guided credential setup for Hermes. The agent can request environment
+  variables by NAME only; the user fills a masked desktop form; values are
+  written directly to .env and never enter the chat or the model context.
+  Ships a catalog of common integrations (email, Telegram, AI providers,
+  GitHub) plus automatic discovery of requires_env declared by installed
+  plugins.
+provides_tools:
+  - env_setup_prompt
+  - env_setup_status
+requires_env: []

@@ -1,0 +1,155 @@
+{
+  "integrations": [
+    {
+      "id": "email",
+      "label": "E-Mail (IMAP/SMTP)",
+      "description": "Postfach-Zugriff: E-Mails lesen und senden über den Hermes-Gateway-Email-Adapter.",
+      "icon": "mail",
+      "fields": [
+        {
+          "name": "EMAIL_ADDRESS",
+          "label": "E-Mail-Adresse",
+          "description": "Die Adresse, die Hermes lesen und mit der er senden soll.",
+          "example": "name@beispiel.de",
+          "secret": false,
+          "required": true
+        },
+        {
+          "name": "EMAIL_PASSWORD",
+          "label": "Postfach-Passwort",
+          "description": "Bei Gmail/Outlook ein App-Passwort verwenden (2-Konto-Sicherheit → App-Passwörter), NICHT das normale Login-Passwort.",
+          "secret": true,
+          "required": true
+        },
+        {
+          "name": "EMAIL_IMAP_HOST",
+          "label": "Posteingangsserver (IMAP)",
+          "description": "Server-Adresse für das Lesen von E-Mails.",
+          "example": "imap.gmail.com",
+          "secret": false,
+          "required": true
+        },
+        {
+          "name": "EMAIL_IMAP_PORT",
+          "label": "IMAP-Port",
+          "description": "Meist 993 (TLS).",
+          "example": "993",
+          "default": "993",
+          "secret": false,
+          "required": false
+        },
+        {
+          "name": "EMAIL_SMTP_HOST",
+          "label": "Postausgangsserver (SMTP)",
+          "description": "Server-Adresse für das Senden von E-Mails.",
+          "example": "smtp.gmail.com",
+          "secret": false,
+          "required": true
+        },
+        {
+          "name": "EMAIL_SMTP_PORT",
+          "label": "SMTP-Port",
+          "description": "Meist 587 (STARTTLS) oder 465 (SSL).",
+          "example": "587",
+          "default": "587",
+          "secret": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "telegram",
+      "label": "Telegram Bot",
+      "description": "Hermes über Telegram erreichbar machen (Gateway-Plattform).",
+      "icon": "send",
+      "fields": [
+        {
+          "name": "TELEGRAM_BOT_TOKEN",
+          "label": "Bot-Token",
+          "description": "Von @BotFather erstellter Bot-Token.",
+          "example": "123456789:ABCdef...",
+          "url": "https://t.me/BotFather",
+          "secret": true,
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "discord",
+      "label": "Discord Bot",
+      "description": "Hermes über Discord erreichbar machen (Gateway-Plattform).",
+      "icon": "symbol",
+      "fields": [
+        {
+          "name": "DISCORD_BOT_TOKEN",
+          "label": "Bot-Token",
+          "description": "Token aus dem Discord Developer Portal (Bot → Reset Token).",
+          "url": "https://discord.com/developers/applications",
+          "secret": true,
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "openai",
+      "label": "OpenAI",
+      "description": "API-Zugang zu OpenAI-Modellen (GPT-Reihe).",
+      "icon": "lightbulb",
+      "fields": [
+        {
+          "name": "OPENAI_API_KEY",
+          "label": "API-Key",
+          "url": "https://platform.openai.com/api-keys",
+          "secret": true,
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "anthropic",
+      "label": "Anthropic",
+      "description": "API-Zugang zu Claude-Modellen.",
+      "icon": "sparkle",
+      "fields": [
+        {
+          "name": "ANTHROPIC_API_KEY",
+          "label": "API-Key",
+          "url": "https://console.anthropic.com/settings/keys",
+          "secret": true,
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "openrouter",
+      "label": "OpenRouter",
+      "description": "Zugang zu hunderten Modellen über einen Account.",
+      "icon": "route",
+      "fields": [
+        {
+          "name": "OPENROUTER_API_KEY",
+          "label": "API-Key",
+          "url": "https://openrouter.ai/settings/keys",
+          "secret": true,
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "github",
+      "label": "GitHub",
+      "description": "Für Repos, PRs, Issues und CI im Terminal.",
+      "icon": "github",
+      "fields": [
+        {
+          "name": "GITHUB_TOKEN",
+          "label": "Personal Access Token",
+          "description": "Token mit den Scopes, die gebraucht werden (repo, workflow, ...).",
+          "url": "https://github.com/settings/tokens",
+          "secret": true,
+          "required": true
+        }
+      ]
+    }
+  ]
+}
