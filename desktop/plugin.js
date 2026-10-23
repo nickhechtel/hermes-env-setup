@@ -1,13 +1,15 @@
 /**
  * env-setup — Setup Assistant desktop half.
  *
- * Page /setup: shows the agent's credential request as a masked form when
- * one is pending (chat-driven, on demand). Idle otherwise — this plugin is a
- * minimal credential channel, not a provider catalog. Integrations are
- * declared where they belong: in plugins' own manifests (requires_env).
+ * The agent requests credentials by NAME when the chat needs them (on
+ * demand); this half makes that request impossible to miss:
  *
- * Cancel really ends the ask flow: the request is cancelled server-side,
- * the waiting agent tool returns 'cancelled', and the chip settles.
+ *   - a new request pops up as a MODAL dialog automatically (hosted by the
+ *     always-mounted statusbar chip; Radix portal, so it floats over the app)
+ *   - Esc / backdrop / close = "later" (request stays open, chip keeps pulsing)
+ *   - the Cancel button really ends the ask flow server-side; the waiting
+ *     agent tool returns 'cancelled'
+ *   - the /setup page mirrors the same form inline for anyone who prefers it
  *
  * Security invariant: values are POSTed to the plugin backend and written to
  * .env there. They never appear in the chat, in tool results, or in any
@@ -16,13 +18,22 @@
  * Plain ESM, loaded uncompiled — jsx() calls only, no JSX syntax.
  */
 
-import { cn, haptic, host, usePluginI18n, useQuery, useQueryClient, queryClient, ROUTES_AREA, SIDEBAR_NAV_AREA } from '@hermes/plugin-sdk'
+import {
+  cn, haptic, host, usePluginI18n, useQuery, useQueryClient, queryClient,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
+  ROUTES_AREA, SIDEBAR_NAV_AREA,
+} from '@hermes/plugin-sdk'
 import { useEffect, useState } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
 
 const ID = 'env-setup'
 
 let _ctx = null
+
+// Request ids that have already auto-popped once: a dismissed dialog must not
+// nag again for the same request. New requests (new id) pop again. Chip clicks
+// always reopen. App restart resets — acceptable, the form is still findable.
+const _seenAutoOpen = new Set()
 
 const api = {
   requests: () => _ctx.rest('/requests'),
@@ -153,9 +164,9 @@ function ResultPanel({ result, onDone, t }) {
   })
 }
 
-// ── the ask form (chat-driven requests only) ────────────────────────────────
+// ── the ask form (shared by the auto-popup dialog and the /setup page) ──────
 
-function SetupForm({ request, onResolve, onCancel, t }) {
+function SetupForm({ request, onResolve, onCancel, onResolved, onDone, t }) {
   const fields = request.fields
   const [values, setValues] = useState({})
   const [busy, setBusy] = useState(false)
@@ -168,7 +179,7 @@ function SetupForm({ request, onResolve, onCancel, t }) {
     setMissingRequired([])
   }, [request.id])
 
-  if (result) return jsx(ResultPanel, { result, onDone: () => { setResult(null) }, t })
+  if (result) return jsx(ResultPanel, { result, onDone, t })
 
   const change = (name, v) => setValues((prev) => ({ ...prev, [name]: v }))
 
@@ -190,6 +201,7 @@ function SetupForm({ request, onResolve, onCancel, t }) {
     try {
       const res = await onResolve(provided, skipped)
       setResult({ ok: !res.errors, ...res })
+      if (onResolved) onResolved()
     } catch (err) {
       setResult({ ok: false, errors: [String((err && err.message) || err)] })
     } finally {
@@ -200,19 +212,9 @@ function SetupForm({ request, onResolve, onCancel, t }) {
   return jsxs('div', {
     className: 'flex flex-col gap-4',
     children: [
-      jsxs('div', {
-        className: 'flex flex-col gap-1 rounded-lg border border-(--ui-accent) p-4',
-        children: [
-          jsxs('span', { className: 'text-sm font-semibold', children: ['🔐 ', t('agentAsks')] }),
-          jsx('h2', { className: 'text-base font-semibold', children: request.title }),
-          request.reason
-            ? jsx('span', { className: 'text-[0.75rem] text-(--ui-text-tertiary)', children: request.reason })
-            : null,
-        ],
-      }),
       jsx('div', { className: 'text-[0.75rem] text-(--ui-text-quaternary)', children: t('privacyNote') }),
       jsx('div', {
-        className: 'flex flex-col gap-4',
+        className: 'flex max-h-[50vh] flex-col gap-4 overflow-y-auto',
         children: fields.map((f) =>
           jsx('div', {
             className: missingRequired.includes(f.name) ? 'rounded-md border border-red-400 p-2' : '',
@@ -239,34 +241,23 @@ function SetupForm({ request, onResolve, onCancel, t }) {
           children: t('cancel'),
         }),
       ] }),
+      jsx('span', { className: 'text-[0.6875rem] text-(--ui-text-quaternary)', children: t('dismissHint') }),
     ],
   })
 }
 
-// ── page ────────────────────────────────────────────────────────────────────
+// ── page (/setup) — mirror of the dialog for anyone who prefers the sidebar ─
 
 function SetupPage() {
   const t = usePluginI18n(ID)
   const queryClient = useQueryClient()
   const requestsQuery = useQuery({ queryKey: [ID, 'requests'], queryFn: api.requests, refetchInterval: 5000 })
 
-  const [active, setActive] = useState(null) // the request currently served
+  const [active, setActive] = useState(null)
   const open = ((requestsQuery.data || {}).requests || []).filter((r) => r.status === 'open')
   const pending = open[0] || null
 
-  // A new incoming request becomes the active one.
   useEffect(() => { if (pending) setActive(pending) }, [pending])
-
-  // Chip navigation sets a storage flag: land directly on the pending request.
-  // NOTE: ctx.storage.get(key, fallback) is SYNCHRONOUS (see contrib/plugin.ts
-  // createPluginStorage) — no .then().
-  useEffect(() => {
-    if (!_ctx || !pending) return
-    if (_ctx.storage.get('open_request', false)) {
-      _ctx.storage.set('open_request', false)
-      setActive(pending)
-    }
-  }, [pending])
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: [ID] })
 
@@ -274,6 +265,16 @@ function SetupPage() {
     return jsxs('div', {
       className: 'mx-auto flex max-w-xl flex-col gap-4 p-6',
       children: [
+        jsxs('div', {
+          className: 'flex flex-col gap-1 rounded-lg border border-(--ui-accent) p-4',
+          children: [
+            jsxs('span', { className: 'text-sm font-semibold', children: ['🔐 ', t('agentAsks')] }),
+            jsx('h2', { className: 'text-base font-semibold', children: active.title }),
+            active.reason
+              ? jsx('span', { className: 'text-[0.75rem] text-(--ui-text-tertiary)', children: active.reason })
+              : null,
+          ],
+        }),
         jsx(SetupForm, {
           request: active,
           t,
@@ -287,6 +288,7 @@ function SetupPage() {
             invalidate()
             setActive(null)
           },
+          onDone: () => setActive(null),
         }),
       ],
     })
@@ -311,29 +313,121 @@ function SetupPage() {
   })
 }
 
-// ── statusbar chip ──────────────────────────────────────────────────────────
+// ── statusbar chip + auto-popup dialog host ────────────────────────────────
 
 function SetupChip() {
   const t = usePluginI18n(ID)
+  const queryClient = useQueryClient()
   const requestsQuery = useQuery({ queryKey: [ID, 'requests'], queryFn: api.requests, refetchInterval: 5000 })
-  const open = (((requestsQuery.data || {}).requests || []).filter((r) => r.status === 'open') || []).length
-  const cls = open
-    ? 'text-(--ui-accent) bg-(--chrome-action-hover)'
-    : 'text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground'
-  return jsx('button', {
-    type: 'button',
-    title: open ? t('chipActiveTip') : t('chipTip'),
-    className: cn(
-      'inline-flex h-full items-center gap-1 px-1.5 text-[0.6875rem] font-medium transition-colors',
-      cls,
-      open && 'animate-pulse'
-    ),
-    onClick: () => {
-      haptic('tap')
-      if (open && _ctx) _ctx.storage.set('open_request', true)
-      host.navigate('/setup')
-    },
-    children: open ? `🔐 ${open}` : '🔐',
+
+  const [active, setActive] = useState(null)       // request shown in the dialog
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [keepOpenForResult, setKeepOpenForResult] = useState(false)
+
+  const requests = (requestsQuery.data || {}).requests || []
+  const open = requests.filter((r) => r.status === 'open')
+  const pending = open[0] || null
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: [ID] })
+
+  // Auto-popup: a NEW open request pops the dialog up, exactly once per id.
+  useEffect(() => {
+    if (!pending) return
+    setActive(pending)
+    if (!_seenAutoOpen.has(pending.id)) {
+      _seenAutoOpen.add(pending.id)
+      setDialogOpen(true)
+    }
+  }, [pending && pending.id])
+
+  // Auto-close when the active request was closed from elsewhere (agent
+  // superseded it, or the page resolved it) — unless THIS dialog just
+  // submitted and is showing its result panel.
+  useEffect(() => {
+    if (!active || keepOpenForResult) return
+    const now = requests.find((r) => r.id === active.id)
+    if (!now || now.status !== 'open') {
+      setDialogOpen(false)
+      setActive(null)
+    }
+  }, [requests, active, keepOpenForResult])
+
+  const closeDialog = () => {
+    setDialogOpen(false)
+    setKeepOpenForResult(false)
+    // Esc/backdrop = "later": request stays open, chip keeps pulsing.
+  }
+
+  const cancelFlow = async () => {
+    if (active) await api.cancel(active.id)
+    invalidate()
+    setDialogOpen(false)
+    setActive(null)
+    setKeepOpenForResult(false)
+  }
+
+  const resolveFlow = async (values, skipped) => {
+    const res = await api.resolve(active.id, values, skipped)
+    invalidate()
+    setKeepOpenForResult(true)
+    return res
+  }
+
+  return jsxs('div', {
+    className: 'contents',
+    children: [
+      jsx('button', {
+        type: 'button',
+        title: pending ? t('chipActiveTip') : t('chipTip'),
+        className: cn(
+          'inline-flex h-full items-center gap-1 px-1.5 text-[0.6875rem] font-medium transition-colors',
+          pending
+            ? 'text-(--ui-accent) bg-(--chrome-action-hover) animate-pulse'
+            : 'text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground'
+        ),
+        onClick: () => {
+          haptic('tap')
+          if (pending) {
+            setActive(pending)
+            setDialogOpen(true)
+          } else {
+            host.navigate('/setup')
+          }
+        },
+        children: open.length ? `🔐 ${open.length}` : '🔐',
+      }),
+      jsx(Dialog, {
+        open: dialogOpen && !!active,
+        onOpenChange: (o) => { if (!o) closeDialog() },
+        children: active
+          ? jsx(DialogContent, {
+              className: 'sm:max-w-lg',
+              children: jsxs('div', {
+                className: 'flex flex-col gap-4',
+                children: [
+                  jsxs(DialogHeader, {
+                    children: [
+                      jsx(DialogTitle, { children: `🔐 ${active.title}` }),
+                      jsx(DialogDescription, {
+                        children: active.reason
+                          ? `${t('agentAsks')} — ${active.reason}`
+                          : t('agentAsks'),
+                      }),
+                    ],
+                  }),
+                  jsx(SetupForm, {
+                    request: active,
+                    t,
+                    onResolve: resolveFlow,
+                    onCancel: cancelFlow,
+                    onDone: closeDialog,
+                  }),
+                ],
+              }),
+            })
+          : null,
+      }),
+    ],
   })
 }
 
@@ -348,9 +442,9 @@ export default {
     ctx.i18n.register({
       de: {
         pageTitle: 'Zugänge',
-        pageSubtitle: 'Hermes fragt Zugänge direkt im Chat an, sobald sie gebraucht werden — sie erscheinen dann hier als maskiertes Formular.',
+        pageSubtitle: 'Hermes fragt Zugänge direkt im Chat an, sobald sie gebraucht werden — das Formular poppt dann automatisch auf.',
         idleTitle: 'Keine offene Anfrage',
-        idleHint: 'Wenn im Chat Zugänge benötigt werden (Mail, Tokens, Passwörter), öffnet sich hier automatisch das Formular. Zugangsdaten landen direkt in der .env — nie im Chat.',
+        idleHint: 'Wenn im Chat Zugänge benötigt werden (Mail, Tokens, Passwörter), öffnet sich das Formular automatisch. Werte landen direkt in der .env — nie im Chat.',
         agentAsks: 'Hermes bittet um Zugänge',
         save: 'In .env speichern',
         saving: 'Speichert…',
@@ -364,15 +458,16 @@ export default {
         whereToGet: 'Wo bekomm ich das? →',
         missingRequired: 'Bitte die markierten Pflichtfelder ausfüllen.',
         privacyNote: 'Deine Werte werden direkt in die .env geschrieben — sie erscheinen nie im Chat und nie im Modellkontext.',
+        dismissHint: 'Esc oder Klick daneben = später. Abbrechen beendet die Anfrage.',
         chipTip: 'Zugänge',
         chipActiveTip: 'Hermes wartet auf Zugänge — klicken zum Ausfüllen',
         footer: 'Integrationen deklarieren ihre Zugänge im plugin.yaml (requires_env) — das Plugin übernimmt sie automatisch.',
       },
       en: {
         pageTitle: 'Credentials',
-        pageSubtitle: 'Hermes asks for credentials in the chat the moment they are needed — they show up here as a masked form.',
+        pageSubtitle: 'Hermes asks for credentials in the chat the moment they are needed — the form pops up automatically.',
         idleTitle: 'No open request',
-        idleHint: 'When the chat needs credentials (mail, tokens, passwords), the form opens here automatically. Values go straight to .env — never into the chat.',
+        idleHint: 'When the chat needs credentials (mail, tokens, passwords), the form opens automatically. Values go straight to .env — never into the chat.',
         agentAsks: 'Hermes is asking for credentials',
         save: 'Save to .env',
         saving: 'Saving…',
@@ -386,6 +481,7 @@ export default {
         whereToGet: 'Where do I get this? →',
         missingRequired: 'Please fill the marked required fields.',
         privacyNote: 'Your values are written straight into .env — they never appear in the chat or the model context.',
+        dismissHint: 'Esc or click outside = later. Cancel ends the request.',
         chipTip: 'Credentials',
         chipActiveTip: 'Hermes is waiting for credentials — click to fill the form',
         footer: 'Integrations declare their credentials in plugin.yaml (requires_env) — the plugin picks them up automatically.',
@@ -421,7 +517,7 @@ export default {
       try {
         ctx.os.notify({
           title: 'Hermes braucht Zugänge',
-          body: (r && r.reason) || 'Ein Formular wartet auf der Setups-Seite.',
+          body: (r && r.reason) || 'Ein Formular ist gerade aufgepoppt.',
           activate: '/setup',
         })
       } catch (e) { /* notifications may be disabled — not fatal */ }
@@ -431,7 +527,7 @@ export default {
       host.onEvent(`plugin.env-setup.${evt}`, () => {
         try {
           queryClient.invalidateQueries({ queryKey: [ID] })
-        } catch (e) { /* refetch interval covers it */ }
+        } catch (e) { /* poll covers it */ }
       })
     }
   },
